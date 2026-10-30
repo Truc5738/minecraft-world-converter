@@ -1,0 +1,101 @@
+name: Convert Java World to Bedrock
+
+on:
+  workflow_dispatch:
+    inputs:
+      output_format:
+        description: Bedrock world format
+        required: true
+        type: choice
+        default: BEDROCK_1_26_60
+        options:
+          - BEDROCK_1_26_60
+          - BEDROCK_1_21_130
+          - BEDROCK_1_20_80
+  push:
+    paths:
+      - "input/world.zip"
+
+permissions:
+  contents: read
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Validate and extract Java world
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f input/world.zip || { echo "::error::Missing input/world.zip. Upload your Java world ZIP to the input folder."; exit 1; }
+          if unzip -Z1 input/world.zip | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+            echo "::error::The ZIP contains an unsafe path."
+            exit 1
+          fi
+          unzip -Z1 input/world.zip | grep -qx 'level.dat' || {
+            echo "::error::level.dat must be at the ZIP root. Re-zip the CONTENTS of the world folder, not its parent folder."
+            exit 1
+          }
+          mkdir -p input/world
+          unzip -q input/world.zip -d input/world
+          test -f input/world/level.dat
+
+      - name: Download official Chunker CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          release="$(curl -fsSL https://api.github.com/repos/HiveGamesOSS/Chunker/releases/latest)"
+          asset="$(jq -r '[.assets[] | select(.name | test("^chunker-cli-[0-9.]+\\.jar$"))][0].browser_download_url // empty' <<< "$release")"
+          digest="$(jq -r '[.assets[] | select(.name | test("^chunker-cli-[0-9.]+\\.jar$"))][0].digest // empty' <<< "$release")"
+          test -n "$asset" || { echo "::error::Official Chunker CLI JAR was not found in the latest release."; exit 1; }
+          curl -fL "$asset" -o chunker-cli.jar
+          if [[ "$digest" == sha256:* ]]; then
+            expected="${digest#sha256:}"
+            actual="$(sha256sum chunker-cli.jar | cut -d' ' -f1)"
+            test "$actual" = "$expected" || { echo "::error::Chunker JAR checksum mismatch."; exit 1; }
+          fi
+          jar tf chunker-cli.jar >/dev/null
+
+      - name: Show supported formats
+        shell: bash
+        run: |
+          set +e
+          java -jar chunker-cli.jar -i input/world -f ? -o format-check 2>&1 | tee chunker-formats.txt
+          exit 0
+
+      - name: Convert with Chunker CLI
+        shell: bash
+        env:
+          OUTPUT_FORMAT: ${{ inputs.output_format || 'BEDROCK_1_26_60' }}
+        run: |
+          set -euo pipefail
+          java -Xmx6G -jar chunker-cli.jar -i input/world -f "$OUTPUT_FORMAT" -o out
+          test -f out/level.dat || { echo "::error::Chunker did not create Bedrock level.dat."; exit 1; }
+          test -d out/db || { echo "::error::Chunker output is missing the Bedrock db folder."; exit 1; }
+
+      - name: Package as MCWORLD
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd out && zip -qr ../converted-world.mcworld .)
+          unzip -Z1 converted-world.mcworld | grep -qx 'level.dat'
+          unzip -Z1 converted-world.mcworld | grep -q '^db/'
+          ls -lh converted-world.mcworld
+
+      - name: Upload converted world
+        uses: actions/upload-artifact@v4
+        with:
+          name: converted-bedrock-world
+          path: converted-world.mcworld
+          if-no-files-found: error
+          retention-days: 14
