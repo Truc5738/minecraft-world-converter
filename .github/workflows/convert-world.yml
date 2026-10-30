@@ -7,15 +7,16 @@ on:
         description: Bedrock world format
         required: true
         type: choice
-        default: BEDROCK_1_26_60
+        default: BEDROCK_R26_50
         options:
-          - BEDROCK_1_26_60
-          - BEDROCK_1_21_130
-          - BEDROCK_1_20_80
+          - BEDROCK_R26_50
+          - BEDROCK_R26_40
+          - BEDROCK_R26_30
   push:
     paths:
       - "input/world.zip"
       - "input/world.zip.part*"
+      - ".github/workflows/convert-world.yml"
 
 permissions:
   contents: read
@@ -81,7 +82,7 @@ jobs:
       - name: Convert with Chunker CLI
         shell: bash
         env:
-          OUTPUT_FORMAT: ${{ inputs.output_format || 'BEDROCK_1_26_60' }}
+          OUTPUT_FORMAT: ${{ inputs.output_format || 'BEDROCK_R26_50' }}
         run: |
           set -euo pipefail
           java -Xmx6G -jar chunker-cli.jar -i input/world -f "$OUTPUT_FORMAT" -o out
