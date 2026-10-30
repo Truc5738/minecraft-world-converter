@@ -15,6 +15,7 @@ on:
   push:
     paths:
       - "input/world.zip"
+      - "input/world.zip.part*"
 
 permissions:
   contents: read
@@ -37,7 +38,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f input/world.zip || { echo "::error::Missing input/world.zip. Upload your Java world ZIP to the input folder."; exit 1; }
+          if [[ ! -f input/world.zip ]]; then
+            parts=(input/world.zip.part*)
+            [[ -f "${parts[0]}" ]] || { echo "::error::Upload world.zip or all split files world.zip.part00, part01, part02..."; exit 1; }
+            cat "${parts[@]}" > input/world.zip
+          fi
           if unzip -Z1 input/world.zip | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
             echo "::error::The ZIP contains an unsafe path."
             exit 1
