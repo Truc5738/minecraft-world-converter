@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          java -jar chunker-cli.jar -i input/world -f ? -o format-check 2>&1 | tee chunker-formats.txt
+          java -jar chunker-cli.jar -i input/world -f '?' -o format-check 2>&1 | tee chunker-formats.txt
           exit 0
 
       - name: Convert with Chunker CLI
